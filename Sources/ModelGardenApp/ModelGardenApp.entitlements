@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- macOS only: allow larger GPU/Unified memory usage needed by MLX models -->
+    <key>com.apple.developer.kernel.increased-memory-limit</key>
+    <true/>
+
+    <!-- App Sandbox (macOS) -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- Read/write to Downloads for model storage (macOS) -->
+    <key>com.apple.security.files.downloads.read-write</key>
+    <true/>
+
+    <!-- Allow user-selected file read (for media attachments) (macOS) -->
+    <key>com.apple.security.files.user-selected.read-only</key>
+    <true/>
+
+    <!-- Network client for model downloads -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>

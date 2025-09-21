@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:ModelGarden}",
+            "name": "Debug ModelGarden",
+            "program": "${workspaceFolder:ModelGarden}/.build/debug/ModelGarden",
+            "preLaunchTask": "swift: Build Debug ModelGarden"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:ModelGarden}",
+            "name": "Release ModelGarden",
+            "program": "${workspaceFolder:ModelGarden}/.build/release/ModelGarden",
+            "preLaunchTask": "swift: Build Release ModelGarden"
+        }
+    ]
+}
