@@ -12,18 +12,18 @@ let package = Package(
         .library(name: "ModelGardenKit", targets: ["ModelGardenKit"])
     ],
     dependencies: [
-        // Remote dependency on mlx-swift-examples libraries
-        .package(url: "https://github.com/ml-explore/mlx-swift-examples", .upToNextMinor(from: "2.25.7")),
+        // Remote dependency on mlx-swift-lm libraries (split from mlx-swift-examples)
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", branch: "main"),
         // Direct dependency for Hub/Transformers types (HubApi)
-        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "0.1.23"))
+        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "1.1.0"))
     ],
     targets: [
         .target(
             name: "ModelGardenKit",
             dependencies: [
-                .product(name: "MLXLLM", package: "mlx-swift-examples"),
-                .product(name: "MLXVLM", package: "mlx-swift-examples"),
-                .product(name: "MLXLMCommon", package: "mlx-swift-examples"),
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXVLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
                 .product(name: "Transformers", package: "swift-transformers")
             ],
             path: "Sources/ModelGardenKit",

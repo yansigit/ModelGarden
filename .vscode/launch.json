@@ -6,8 +6,9 @@
             "args": [],
             "cwd": "${workspaceFolder:ModelGarden}",
             "name": "Debug ModelGarden",
-            "program": "${workspaceFolder:ModelGarden}/.build/debug/ModelGarden",
-            "preLaunchTask": "swift: Build Debug ModelGarden"
+            "preLaunchTask": "swift: Build Debug ModelGarden",
+            "target": "ModelGarden",
+            "configuration": "debug"
         },
         {
             "type": "swift",
@@ -15,8 +16,9 @@
             "args": [],
             "cwd": "${workspaceFolder:ModelGarden}",
             "name": "Release ModelGarden",
-            "program": "${workspaceFolder:ModelGarden}/.build/release/ModelGarden",
-            "preLaunchTask": "swift: Build Release ModelGarden"
+            "preLaunchTask": "swift: Build Release ModelGarden",
+            "target": "ModelGarden",
+            "configuration": "release"
         }
     ]
 }
