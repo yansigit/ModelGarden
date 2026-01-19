@@ -92,7 +92,17 @@ public final class MLXService {
         return currentModelContainer?.name == modelName
     }
 
-    public func generate(messages: [Message], model: LMModel) async throws -> AsyncStream<Generation> {
+    /// Generate a response from the model
+    /// - Parameters:
+    ///   - messages: The conversation messages
+    ///   - model: The model to use for generation
+    ///   - additionalContext: Optional context passed to the chat template (e.g., `["enable_thinking": false]` for Qwen3)
+    /// - Returns: An async stream of generation events
+    public func generate(
+        messages: [Message],
+        model: LMModel,
+        additionalContext: [String: any Sendable]? = nil
+    ) async throws -> AsyncStream<Generation> {
         let modelContainer = try await load(model: model)
         let chat = messages.map { message in
             let role: Chat.Message.Role = switch message.role { case .assistant: .assistant; case .user: .user; case .system: .system }
@@ -100,7 +110,11 @@ public final class MLXService {
             let videos: [UserInput.Video] = message.videos.map { .url($0) }
             return Chat.Message(role: role, content: message.content, images: images, videos: videos)
         }
-        let userInput = UserInput(chat: chat, processing: .init(resize: .init(width: 1024, height: 1024)))
+        let userInput = UserInput(
+            chat: chat,
+            processing: .init(resize: .init(width: 1024, height: 1024)),
+            additionalContext: additionalContext
+        )
         return try await modelContainer.perform { (context: ModelContext) in
             let lmInput = try await context.processor.prepare(input: userInput)
             let parameters = GenerateParameters(temperature: 0.7)
