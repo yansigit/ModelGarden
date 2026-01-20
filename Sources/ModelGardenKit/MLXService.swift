@@ -4,6 +4,7 @@ import MLX
 import MLXLLM
 import MLXLMCommon
 import MLXVLM
+import Tokenizers
 
 // MARK: - Custom Model Configurations
 
@@ -44,31 +45,88 @@ extension ModelConfiguration {
 @MainActor
 public final class MLXService {
     public static let availableModels: [LMModel] = [
-        LMModel(name: "llama3.2:1b", configuration: LLMRegistry.llama3_2_1B_4bit, type: .llm),
-        LMModel(name: "qwen2.5:1.5b", configuration: LLMRegistry.qwen2_5_1_5b, type: .llm),
-        LMModel(name: "smolLM:135m", configuration: LLMRegistry.smolLM_135M_4bit, type: .llm),
-        LMModel(name: "smolLM3:3b", configuration: .smolLM3_3B_4bit, type: .llm),
-        LMModel(name: "phi4-mini", configuration: .phi4_mini_instruct_4bit, type: .llm),
-        LMModel(name: "qwen3:0.6b", configuration: LLMRegistry.qwen3_0_6b_4bit, type: .llm),
-        LMModel(name: "qwen3:1.7b", configuration: LLMRegistry.qwen3_1_7b_4bit, type: .llm),
-        LMModel(name: "qwen3:4b", configuration: LLMRegistry.qwen3_4b_4bit, type: .llm),
-        LMModel(name: "qwen3:4b-2507", configuration: .qwen3_4B_instruct_2507_4bit, type: .llm),
-        LMModel(name: "qwen3:8b", configuration: LLMRegistry.qwen3_8b_4bit, type: .llm),
-        LMModel(name: "jan:4b", configuration: .janV1_4B_4bit, type: .llm),
-        LMModel(name: "qwen2.5VL:3b", configuration: VLMRegistry.qwen2_5VL3BInstruct4Bit, type: .vlm),
-        LMModel(name: "qwen2VL:2b", configuration: VLMRegistry.qwen2VL2BInstruct4Bit, type: .vlm),
-        LMModel(name: "smolVLM", configuration: VLMRegistry.smolvlminstruct4bit, type: .vlm),
-        LMModel(name: "acereason:7B", configuration: LLMRegistry.acereason_7b_4bit, type: .llm),
-        LMModel(name: "gemma3n:E2B", configuration: LLMRegistry.gemma3n_E2B_it_lm_4bit, type: .llm),
-        LMModel(name: "gemma3n:E4B", configuration: LLMRegistry.gemma3n_E4B_it_lm_4bit, type: .llm),
+        // Llama family - good tool calling support
+        LMModel(name: "llama3.2:1b", configuration: LLMRegistry.llama3_2_1B_4bit, type: .llm, supportsToolCalling: true),
+        
+        // Qwen2.5 family - excellent tool support
+        LMModel(name: "qwen2.5:1.5b", configuration: LLMRegistry.qwen2_5_1_5b, type: .llm, supportsToolCalling: true),
+        
+        // SmolLM - lightweight; SmolLM3 supports tool calling via XML tools
+        LMModel(name: "smolLM:135m", configuration: LLMRegistry.smolLM_135M_4bit, type: .llm, supportsToolCalling: false),
+        LMModel(name: "smolLM3:3b", configuration: .smolLM3_3B_4bit, type: .llm, supportsToolCalling: true),
+        
+        // Phi-4 mini - instruction tuned, supports structured output
+        LMModel(name: "phi4-mini", configuration: .phi4_mini_instruct_4bit, type: .llm, supportsToolCalling: true),
+        
+        // Qwen3 family - excellent tool/function calling support
+        LMModel(name: "qwen3:0.6b", configuration: LLMRegistry.qwen3_0_6b_4bit, type: .llm, supportsToolCalling: true),
+        LMModel(name: "qwen3:1.7b", configuration: LLMRegistry.qwen3_1_7b_4bit, type: .llm, supportsToolCalling: true),
+        LMModel(name: "qwen3:4b", configuration: LLMRegistry.qwen3_4b_4bit, type: .llm, supportsToolCalling: true),
+        LMModel(name: "qwen3:4b-2507", configuration: .qwen3_4B_instruct_2507_4bit, type: .llm, supportsToolCalling: true),
+        LMModel(name: "qwen3:8b", configuration: LLMRegistry.qwen3_8b_4bit, type: .llm, supportsToolCalling: true),
+        
+        // Jan-4b - based on Qwen3-4B-Thinking, optimized for agentic tasks with tool calling
+        LMModel(name: "jan:4b", configuration: .janV1_4B_4bit, type: .llm, supportsToolCalling: true),
+        
+        // Vision models - Qwen2.5VL supports tool calling
+        LMModel(name: "qwen2.5VL:3b", configuration: VLMRegistry.qwen2_5VL3BInstruct4Bit, type: .vlm, supportsToolCalling: true),
+        LMModel(name: "qwen2VL:2b", configuration: VLMRegistry.qwen2VL2BInstruct4Bit, type: .vlm, supportsToolCalling: true),
+        LMModel(name: "smolVLM", configuration: VLMRegistry.smolvlminstruct4bit, type: .vlm, supportsToolCalling: false),
+        
+        // AceReason - reasoning model, supports tool calling
+        LMModel(name: "acereason:7B", configuration: LLMRegistry.acereason_7b_4bit, type: .llm, supportsToolCalling: true),
+        
+        // Gemma3n - Google's efficient models, supports tool calling
+        LMModel(name: "gemma3n:E2B", configuration: LLMRegistry.gemma3n_E2B_it_lm_4bit, type: .llm, supportsToolCalling: true),
+        LMModel(name: "gemma3n:E4B", configuration: LLMRegistry.gemma3n_E4B_it_lm_4bit, type: .llm, supportsToolCalling: true),
     ]
 
     /// Currently loaded model container (single model mode for memory efficiency)
     private var currentModelContainer: (name: String, container: ModelContainer)?
+    
+    /// Cache for loaded chat templates from .jinja files
+    private var chatTemplateCache: [String: String] = [:]
 
     @MainActor public private(set) var modelDownloadProgress: Progress?
 
     public init() {}
+    
+    /// Load chat template from .jinja file in model directory if it exists
+    private func loadChatTemplate(for configuration: ModelConfiguration) -> String? {
+        let modelDir = configuration.modelDirectory(hub: .default)
+        let jinjaPath = modelDir.appendingPathComponent("chat_template.jinja")
+        
+        // Check cache first
+        let cacheKey = configuration.name
+        if let cached = chatTemplateCache[cacheKey] {
+            return cached
+        }
+        
+        // Try to load from file
+        if FileManager.default.fileExists(atPath: jinjaPath.path) {
+            do {
+                let template = try String(contentsOf: jinjaPath, encoding: .utf8)
+                chatTemplateCache[cacheKey] = template
+                print("MLXService: Loaded chat template from \(jinjaPath.lastPathComponent) (\(template.count) chars)")
+                return template
+            } catch {
+                print("MLXService: Failed to load chat template: \(error)")
+            }
+        }
+        
+        return nil
+    }
+    
+    /// Check if a model has a chat template with tool support
+    public func modelHasToolTemplate(_ modelName: String) -> Bool {
+        guard let model = MLXService.availableModels.first(where: { $0.name == modelName }) else {
+            return false
+        }
+        if let template = loadChatTemplate(for: model.configuration) {
+            return template.contains("tools") && template.contains("tool_call")
+        }
+        return false
+    }
 
     /// Unloads the current model and clears GPU memory
     private func unloadCurrentModel() {
@@ -150,11 +208,15 @@ public final class MLXService {
     /// - Parameters:
     ///   - messages: The conversation messages
     ///   - model: The model to use for generation
+    ///   - tools: Optional tool specifications for function calling (injected into chat template)
+    ///   - maxTokens: Maximum tokens to generate (default 2048 for tool-calling models)
     ///   - additionalContext: Optional context passed to the chat template (e.g., `["enable_thinking": false]` for Qwen3)
     /// - Returns: An async stream of generation events
     public func generate(
         messages: [Message],
         model: LMModel,
+        tools: [ToolSpec]? = nil,
+        maxTokens: Int? = nil,
         additionalContext: [String: any Sendable]? = nil
     ) async throws -> AsyncStream<Generation> {
         let modelContainer = try await load(model: model)
@@ -169,15 +231,30 @@ public final class MLXService {
         if let ctx = additionalContext {
             print("MLXService: additionalContext = \(ctx)")
         }
+        if let tools = tools {
+            print("MLXService: Passing \(tools.count) tools to chat template")
+        }
         
         let userInput = UserInput(
             chat: chat,
             processing: .init(resize: .init(width: 1024, height: 1024)),
+            tools: tools,
             additionalContext: additionalContext
         )
         return try await modelContainer.perform { (context: ModelContext) in
             let lmInput = try await context.processor.prepare(input: userInput)
-            let parameters = GenerateParameters(temperature: 0.7)
+            
+            // Debug: print the prompt tokens count to see if tools are being injected
+            print("MLXService: Prompt token count = \(lmInput.text.tokens.size)")
+            
+            // Use provided maxTokens or default to 2048 for tool-calling scenarios
+            let effectiveMaxTokens = maxTokens ?? (tools != nil ? 2048 : nil)
+            print("MLXService: effectiveMaxTokens = \(effectiveMaxTokens ?? -1)")
+            
+            // Use parameters optimized for tool calling (based on Jan model recommendations)
+            // temperature: 0.6 for more focused reasoning, topP: 0.95 for coherent output
+            let parameters = GenerateParameters(maxTokens: effectiveMaxTokens, temperature: 0.6, topP: 0.95)
+            print("MLXService: Starting generation with temperature=0.6, topP=0.95")
             return try MLXLMCommon.generate(input: lmInput, parameters: parameters, context: context)
         }
     }

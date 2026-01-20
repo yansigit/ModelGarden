@@ -29,6 +29,9 @@ struct ModelManagerScreen: View {
                 }
             }
             .navigationTitle("Models")
+            .onAppear {
+                vm.refreshIfNeeded()
+            }
         }
     }
 }

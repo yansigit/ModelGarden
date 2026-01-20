@@ -13,16 +13,35 @@ public final class ModelManagerViewModel: @unchecked Sendable {
         public var isDownloaded: Bool
         public var sizeOnDisk: UInt64
         public var progress: Progress?
+        
+        public init(model: LMModel, isDownloaded: Bool, sizeOnDisk: UInt64, progress: Progress? = nil) {
+            self.model = model
+            self.isDownloaded = isDownloaded
+            self.sizeOnDisk = sizeOnDisk
+            self.progress = progress
+        }
     }
 
     public private(set) var items: [ModelStatus] = []
     public var filter: LMModel.ModelType? = nil
+    
+    /// Tracks if refresh has been called at least once
+    private var hasRefreshed = false
 
     public init() {
-        refresh()
+        // Don't call refresh() in init - it does expensive file system operations
+        // that block the main thread. Call refresh() explicitly when needed.
+    }
+    
+    /// Ensures items are populated. Call this before accessing items if they might not be loaded yet.
+    public func refreshIfNeeded() {
+        if !hasRefreshed {
+            refresh()
+        }
     }
 
     public func refresh() {
+        hasRefreshed = true
         let all = MLXService.availableModels
         items = all.compactMap { model in
             let dir = model.configuration.modelDirectory(hub: .default)
