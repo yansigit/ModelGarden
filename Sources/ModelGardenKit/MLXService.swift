@@ -210,7 +210,9 @@ public final class MLXService {
     ///   - model: The model to use for generation
     ///   - tools: Optional tool specifications for function calling (injected into chat template)
     ///   - maxTokens: Maximum tokens to generate (default 2048 for tool-calling models)
-    ///   - additionalContext: Optional context passed to the chat template (e.g., `["enable_thinking": false]` for Qwen3)
+    ///   - additionalContext: Optional context passed to the chat template. Special keys:
+    ///     - `"chatTemplate"`: A Jinja2 template string to override the model's default template
+    ///     - `"enable_thinking"`: For Qwen3 models, set to false to disable thinking mode
     /// - Returns: An async stream of generation events
     public func generate(
         messages: [Message],
@@ -242,7 +244,20 @@ public final class MLXService {
             additionalContext: additionalContext
         )
         return try await modelContainer.perform { (context: ModelContext) in
-            let lmInput = try await context.processor.prepare(input: userInput)
+            // Use custom template processing if a chat template override is provided
+            let lmInput: LMInput
+            var effectiveContext = context
+            
+            if additionalContext?[ChatTemplateContextKey] != nil {
+                lmInput = try await prepareWithCustomTemplate(input: userInput, context: context)
+                
+                // If extra EOS tokens are provided, create a modified context
+                if let extraEOS = additionalContext?[ExtraEOSTokensContextKey] as? [String], !extraEOS.isEmpty {
+                    effectiveContext = contextWithExtraEOSTokens(context, extraEOSTokens: extraEOS)
+                }
+            } else {
+                lmInput = try await context.processor.prepare(input: userInput)
+            }
             
             // Debug: print the prompt tokens count to see if tools are being injected
             print("MLXService: Prompt token count = \(lmInput.text.tokens.size)")
@@ -255,7 +270,7 @@ public final class MLXService {
             // temperature: 0.6 for more focused reasoning, topP: 0.95 for coherent output
             let parameters = GenerateParameters(maxTokens: effectiveMaxTokens, temperature: 0.6, topP: 0.95)
             print("MLXService: Starting generation with temperature=0.6, topP=0.95")
-            return try MLXLMCommon.generate(input: lmInput, parameters: parameters, context: context)
+            return try MLXLMCommon.generate(input: lmInput, parameters: parameters, context: effectiveContext)
         }
     }
 
