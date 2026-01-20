@@ -5,6 +5,41 @@ import MLXLLM
 import MLXLMCommon
 import MLXVLM
 
+// MARK: - Custom Model Configurations
+
+extension ModelConfiguration {
+    /// Jan-v1-4B: Agentic reasoning model based on Qwen3-4B-Thinking
+    /// Fine-tuned for agentic tasks with tool calling capabilities
+    /// Source: https://huggingface.co/mlx-community/Jan-v1-4B-4bit
+    public static let janV1_4B_4bit = ModelConfiguration(
+        id: "mlx-community/Jan-v1-4B-4bit",
+        defaultPrompt: "You are a helpful AI assistant with agentic capabilities."
+    )
+    
+    /// SmolLM3-3B: Efficient 3B parameter model from HuggingFace
+    /// Supports 8 languages, Apache 2.0 licensed
+    /// Source: https://huggingface.co/mlx-community/SmolLM3-3B-4bit
+    public static let smolLM3_3B_4bit = ModelConfiguration(
+        id: "mlx-community/SmolLM3-3B-4bit",
+        defaultPrompt: "You are a helpful assistant."
+    )
+    
+    /// Phi-4-mini-instruct: Microsoft's compact yet powerful model
+    /// Source: https://huggingface.co/mlx-community/Phi-4-mini-instruct-4bit
+    public static let phi4_mini_instruct_4bit = ModelConfiguration(
+        id: "mlx-community/Phi-4-mini-instruct-4bit",
+        defaultPrompt: "You are a helpful AI assistant."
+    )
+    
+    /// Qwen3-4B-Instruct-2507: Latest Qwen3 4B instruct model (July 2025 version)
+    /// Improved reasoning and instruction following
+    /// Source: https://huggingface.co/mlx-community/Qwen3-4B-Instruct-2507-4bit
+    public static let qwen3_4B_instruct_2507_4bit = ModelConfiguration(
+        id: "mlx-community/Qwen3-4B-Instruct-2507-4bit",
+        defaultPrompt: "You are a helpful assistant."
+    )
+}
+
 @Observable
 @MainActor
 public final class MLXService {
@@ -12,10 +47,14 @@ public final class MLXService {
         LMModel(name: "llama3.2:1b", configuration: LLMRegistry.llama3_2_1B_4bit, type: .llm),
         LMModel(name: "qwen2.5:1.5b", configuration: LLMRegistry.qwen2_5_1_5b, type: .llm),
         LMModel(name: "smolLM:135m", configuration: LLMRegistry.smolLM_135M_4bit, type: .llm),
+        LMModel(name: "smolLM3:3b", configuration: .smolLM3_3B_4bit, type: .llm),
+        LMModel(name: "phi4-mini", configuration: .phi4_mini_instruct_4bit, type: .llm),
         LMModel(name: "qwen3:0.6b", configuration: LLMRegistry.qwen3_0_6b_4bit, type: .llm),
         LMModel(name: "qwen3:1.7b", configuration: LLMRegistry.qwen3_1_7b_4bit, type: .llm),
         LMModel(name: "qwen3:4b", configuration: LLMRegistry.qwen3_4b_4bit, type: .llm),
+        LMModel(name: "qwen3:4b-2507", configuration: .qwen3_4B_instruct_2507_4bit, type: .llm),
         LMModel(name: "qwen3:8b", configuration: LLMRegistry.qwen3_8b_4bit, type: .llm),
+        LMModel(name: "jan:4b", configuration: .janV1_4B_4bit, type: .llm),
         LMModel(name: "qwen2.5VL:3b", configuration: VLMRegistry.qwen2_5VL3BInstruct4Bit, type: .vlm),
         LMModel(name: "qwen2VL:2b", configuration: VLMRegistry.qwen2VL2BInstruct4Bit, type: .vlm),
         LMModel(name: "smolVLM", configuration: VLMRegistry.smolvlminstruct4bit, type: .vlm),
@@ -62,17 +101,32 @@ public final class MLXService {
 
         print("Loading new model: \(model.name)")
         let factory: ModelFactory = switch model.type { case .llm: LLMModelFactory.shared; case .vlm: VLMModelFactory.shared }
-        let container = try await factory.loadContainer(hub: .default, configuration: model.configuration) { progress in
-            Task { @MainActor in self.modelDownloadProgress = progress }
+        
+        do {
+            let container = try await factory.loadContainer(hub: .default, configuration: model.configuration) { progress in
+                Task { @MainActor in self.modelDownloadProgress = progress }
+            }
+            
+            // Clear download progress after loading is complete
+            Task { @MainActor in self.modelDownloadProgress = nil }
+            
+            // Store the new model container
+            currentModelContainer = (model.name, container)
+            print("Successfully loaded model: \(model.name)")
+            return container
+        } catch {
+            // Log error to console with detailed information
+            print("❌ MLXService: Failed to load model '\(model.name)'")
+            print("   Model ID: \(model.configuration.name)")
+            print("   Error: \(error)")
+            print("   Localized: \(error.localizedDescription)")
+            
+            // Clear download progress on error
+            Task { @MainActor in self.modelDownloadProgress = nil }
+            
+            // Re-throw the error so caller can handle it
+            throw error
         }
-
-        // Clear download progress after loading is complete
-        Task { @MainActor in self.modelDownloadProgress = nil }
-
-        // Store the new model container
-        currentModelContainer = (model.name, container)
-        print("Successfully loaded model: \(model.name)")
-        return container
     }
 
     /// Manually unload the current model to free GPU memory
@@ -110,6 +164,12 @@ public final class MLXService {
             let videos: [UserInput.Video] = message.videos.map { .url($0) }
             return Chat.Message(role: role, content: message.content, images: images, videos: videos)
         }
+        
+        // Debug logging
+        if let ctx = additionalContext {
+            print("MLXService: additionalContext = \(ctx)")
+        }
+        
         let userInput = UserInput(
             chat: chat,
             processing: .init(resize: .init(width: 1024, height: 1024)),

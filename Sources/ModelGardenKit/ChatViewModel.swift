@@ -48,7 +48,14 @@ public final class ChatViewModel {
                     if let last = self.messages.last { last.content += "\n[Cancelled]" }
                 }
             }
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            // Log error to console and show to user
+            print("❌ ChatViewModel: Error during generation")
+            print("   Model: \(selectedModel.name)")
+            print("   Error: \(error)")
+            print("   Localized: \(error.localizedDescription)")
+            errorMessage = error.localizedDescription
+        }
         isGenerating = false
         generateTask = nil
     }
