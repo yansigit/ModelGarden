@@ -41,6 +41,25 @@ extension ModelConfiguration {
         id: "mlx-community/Qwen3-4B-Instruct-2507-4bit",
         defaultPrompt: "You are a helpful assistant."
     )
+
+    /// LFM2.5-1.2B-Thinking: Liquid AI's reasoning model with chain-of-thought capabilities
+    /// 1.2B parameters, 128K context, supports tool calling and thinking mode
+    /// Source: https://huggingface.co/LiquidAI/LFM2.5-1.2B-Thinking-MLX-4bit
+    public static let lfm2_5_1_2b_thinking_4bit = ModelConfiguration(
+        id: "LiquidAI/LFM2.5-1.2B-Thinking-MLX-4bit",
+        defaultPrompt: "You are a helpful AI assistant.",
+        extraEOSTokens: ["<|im_end|>"]
+    )
+
+    /// LFM2.5-1.2B-Instruct: Liquid AI's instruction-tuned model
+    /// 1.2B parameters, 128K context, optimized for instruction following
+    /// Uses ChatML format, lighter weight than Thinking variant (no reasoning overhead)
+    /// Source: https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-MLX-4bit
+    public static let lfm2_5_1_2b_instruct_4bit = ModelConfiguration(
+        id: "LiquidAI/LFM2.5-1.2B-Instruct-MLX-4bit",
+        defaultPrompt: "You are a helpful AI assistant.",
+        extraEOSTokens: ["<|im_end|>"]
+    )
 }
 
 @Observable
@@ -81,6 +100,10 @@ public final class MLXService {
         // Gemma3n - Google's efficient models, supports tool calling
         LMModel(name: "gemma3n:E2B", configuration: LLMRegistry.gemma3n_E2B_it_lm_4bit, type: .llm, supportsToolCalling: true),
         LMModel(name: "gemma3n:E4B", configuration: LLMRegistry.gemma3n_E4B_it_lm_4bit, type: .llm, supportsToolCalling: true),
+
+        // LFM - Liquid AI's efficient models
+        LMModel(name: "lfm:1.2b", configuration: .lfm2_5_1_2b_thinking_4bit, type: .llm, supportsToolCalling: true),
+        LMModel(name: "lfm:1.2b-instruct", configuration: .lfm2_5_1_2b_instruct_4bit, type: .llm, supportsToolCalling: true),
     ]
 
     /// Currently loaded model container (single model mode for memory efficiency)
