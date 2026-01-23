@@ -136,17 +136,17 @@ public final class MLXService {
             currentModelContainer = nil
 
             // Clear GPU cache to free memory
-            MLX.GPU.clearCache()
+            MLX.Memory.clearCache()
 
             // Force garbage collection by setting a minimal cache limit temporarily
-            let originalLimit = MLX.GPU.cacheLimit
-            MLX.GPU.set(cacheLimit: 0)
-            MLX.GPU.set(cacheLimit: originalLimit)
+            let originalLimit = MLX.Memory.cacheLimit
+            MLX.Memory.cacheLimit = 0
+            MLX.Memory.cacheLimit = originalLimit
         }
     }
 
     private func load(model: LMModel) async throws -> ModelContainer {
-        MLX.GPU.set(cacheLimit: 20 * 1024 * 1024)
+        MLX.Memory.cacheLimit = 20 * 1024 * 1024
 
         // Check if we already have this model loaded
         if let current = currentModelContainer, current.name == model.name {
