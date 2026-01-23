@@ -184,15 +184,13 @@ public final class MLXService {
 
         print("Loading new model: \(model.name)")
         let factory: ModelFactory = switch model.type { case .llm: LLMModelFactory.shared; case .vlm: VLMModelFactory.shared }
-        
+
         do {
-            let container = try await factory.loadContainer(hub: .default, configuration: model.configuration) { progress in
-                Task { @MainActor in self.modelDownloadProgress = progress }
-            }
-            
+            let container = try await loadContainerWithRetry(factory: factory, model: model)
+
             // Clear download progress after loading is complete
             Task { @MainActor in self.modelDownloadProgress = nil }
-            
+
             // Store the new model container
             currentModelContainer = (model.name, container)
             print("Successfully loaded model: \(model.name)")
@@ -203,12 +201,103 @@ public final class MLXService {
             print("   Model ID: \(model.configuration.name)")
             print("   Error: \(error)")
             print("   Localized: \(error.localizedDescription)")
-            
+
             // Clear download progress on error
             Task { @MainActor in self.modelDownloadProgress = nil }
-            
+
             // Re-throw the error so caller can handle it
             throw error
+        }
+    }
+
+    /// Loads model container with automatic retry on corrupted cache errors
+    private func loadContainerWithRetry(factory: ModelFactory, model: LMModel) async throws -> ModelContainer {
+        do {
+            return try await factory.loadContainer(hub: .default, configuration: model.configuration) { progress in
+                Task { @MainActor in self.modelDownloadProgress = progress }
+            }
+        } catch let error as NSError where isCorruptedCacheError(error) {
+            // Corrupted cache state detected - clean up and retry once
+            print("MLXService: Detected corrupted cache for \(model.name), cleaning up and retrying...")
+            cleanupCorruptedCache(for: model)
+
+            // Retry the load after cleanup
+            return try await factory.loadContainer(hub: .default, configuration: model.configuration) { progress in
+                Task { @MainActor in self.modelDownloadProgress = progress }
+            }
+        }
+    }
+
+    /// Checks if an error indicates a corrupted HuggingFace cache state
+    private func isCorruptedCacheError(_ error: NSError) -> Bool {
+        // NSCocoaErrorDomain Code=4 is NSFileNoSuchFileError (file not found during move operation)
+        // The error message contains ".incomplete" which indicates a failed download resume
+        if error.domain == NSCocoaErrorDomain && error.code == 4 {
+            let errorDesc = error.localizedDescription + (error.userInfo[NSLocalizedDescriptionKey] as? String ?? "")
+            return errorDesc.contains(".incomplete")
+        }
+
+        // Also check underlying POSIX error for "No such file or directory"
+        if let underlyingError = error.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlyingError.domain == NSPOSIXErrorDomain && underlyingError.code == 2 {
+            return true
+        }
+
+        return false
+    }
+
+    /// Cleans up corrupted cache directories for a model
+    private func cleanupCorruptedCache(for model: LMModel) {
+        let modelDir = model.configuration.modelDirectory(hub: .default)
+        let fileManager = FileManager.default
+
+        // Remove the .cache directory inside the model directory
+        let cacheDir = modelDir.appendingPathComponent(".cache")
+        if fileManager.fileExists(atPath: cacheDir.path) {
+            do {
+                try fileManager.removeItem(at: cacheDir)
+                print("MLXService: Removed corrupted cache directory at \(cacheDir.path)")
+            } catch {
+                print("MLXService: Failed to remove cache directory: \(error)")
+            }
+        }
+
+        // Also check for and remove any .incomplete files
+        if let enumerator = fileManager.enumerator(at: modelDir, includingPropertiesForKeys: nil) {
+            while let url = enumerator.nextObject() as? URL {
+                if url.lastPathComponent.contains(".incomplete") {
+                    do {
+                        try fileManager.removeItem(at: url)
+                        print("MLXService: Removed incomplete file at \(url.path)")
+                    } catch {
+                        print("MLXService: Failed to remove incomplete file: \(error)")
+                    }
+                }
+            }
+        }
+
+        // If the model directory is essentially empty, remove it entirely for a fresh download
+        if fileManager.fileExists(atPath: modelDir.path) {
+            let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey]
+            var totalSize: UInt64 = 0
+            if let enumerator = fileManager.enumerator(at: modelDir, includingPropertiesForKeys: keys) {
+                while let url = enumerator.nextObject() as? URL {
+                    if let values = try? url.resourceValues(forKeys: Set(keys)),
+                       values.isRegularFile == true,
+                       let fileSize = values.fileSize {
+                        totalSize += UInt64(fileSize)
+                    }
+                }
+            }
+            // If less than 1MB, consider it corrupted
+            if totalSize < 1_000_000 {
+                do {
+                    try fileManager.removeItem(at: modelDir)
+                    print("MLXService: Removed corrupted model directory at \(modelDir.path)")
+                } catch {
+                    print("MLXService: Failed to remove model directory: \(error)")
+                }
+            }
         }
     }
 
