@@ -102,12 +102,17 @@ public final class MLXService {
         LMModel(name: "gemma3n:E4B", configuration: LLMRegistry.gemma3n_E4B_it_lm_4bit, type: .llm, supportsToolCalling: true),
 
         // LFM - Liquid AI's efficient models
-        LMModel(name: "lfm:1.2b", configuration: .lfm2_5_1_2b_thinking_4bit, type: .llm, supportsToolCalling: true),
-        LMModel(name: "lfm:1.2b-instruct", configuration: .lfm2_5_1_2b_instruct_4bit, type: .llm, supportsToolCalling: true),
+        LMModel(name: "LFM2.5:1.2b", configuration: .lfm2_5_1_2b_thinking_4bit, type: .llm, supportsToolCalling: true),
+        LMModel(name: "LFM2.5:1.2b-instruct", configuration: .lfm2_5_1_2b_instruct_4bit, type: .llm, supportsToolCalling: true),
     ]
 
     /// Currently loaded model container (single model mode for memory efficiency)
     private var currentModelContainer: (name: String, container: ModelContainer)?
+    
+    /// Auxiliary model container for secondary tasks (kept separate from main chat model)
+    /// This allows apps to load a second model without affecting the user's primary chat model
+    /// Common use cases: title generation, summarization, embeddings, etc.
+    private var auxiliaryModelContainer: (name: String, container: ModelContainer)?
     
     /// Cache for loaded chat templates from .jinja files
     private var chatTemplateCache: [String: String] = [:]
@@ -411,5 +416,113 @@ public final class MLXService {
             throw NSError(domain: "MLXService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unknown model: \(modelName)"])
         }
         try await preload(model: model)
+    }
+    
+    // MARK: - Auxiliary Model Management
+    
+    /// Check if an auxiliary model is currently loaded
+    public var isAuxiliaryModelLoaded: Bool {
+        auxiliaryModelContainer != nil
+    }
+    
+    /// Get the name of the currently loaded auxiliary model, if any
+    public var currentAuxiliaryModelName: String? {
+        auxiliaryModelContainer?.name
+    }
+    
+    /// Preload an auxiliary model into a separate container
+    /// This allows a second model to be loaded without affecting the primary chat model
+    /// - Parameter model: The model to load as auxiliary
+    public func preloadAuxiliaryModel(_ model: LMModel) async throws {
+        // Check if already loaded
+        if let current = auxiliaryModelContainer, current.name == model.name {
+            print("MLXService: Auxiliary model '\(model.name)' already loaded")
+            return
+        }
+        
+        // Unload previous auxiliary model if different
+        if auxiliaryModelContainer != nil {
+            print("MLXService: Unloading previous auxiliary model")
+            auxiliaryModelContainer = nil
+            MLX.Memory.clearCache()
+        }
+        
+        print("MLXService: Loading auxiliary model: \(model.name)")
+        let factory: ModelFactory = switch model.type { case .llm: LLMModelFactory.shared; case .vlm: VLMModelFactory.shared }
+        
+        do {
+            let container = try await loadContainerWithRetry(factory: factory, model: model)
+            auxiliaryModelContainer = (model.name, container)
+            print("MLXService: Successfully loaded auxiliary model: \(model.name)")
+        } catch {
+            print("❌ MLXService: Failed to load auxiliary model '\(model.name)': \(error)")
+            throw error
+        }
+    }
+    
+    /// Convenience to preload auxiliary model by name
+    /// - Parameter modelName: Name matching LMModel.name
+    public func preloadAuxiliaryModel(modelName: String) async throws {
+        guard let model = MLXService.availableModels.first(where: { $0.name == modelName }) else {
+            throw NSError(domain: "MLXService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unknown model: \(modelName)"])
+        }
+        try await preloadAuxiliaryModel(model)
+    }
+    
+    /// Unload the auxiliary model to free memory
+    public func unloadAuxiliaryModel() {
+        if auxiliaryModelContainer != nil {
+            print("MLXService: Unloading auxiliary model")
+            auxiliaryModelContainer = nil
+            MLX.Memory.clearCache()
+        }
+    }
+    
+    /// Generate a response using the auxiliary model
+    /// This uses a separate model container that won't affect the primary chat model
+    /// - Parameters:
+    ///   - messages: The conversation messages
+    ///   - temperature: Temperature for sampling. Default: 0.6
+    ///   - topP: Top-P (nucleus sampling) probability threshold. Default: 0.95
+    ///   - maxTokens: Maximum tokens to generate (default 100)
+    /// - Returns: An async stream of generation events
+    /// - Throws: Error if no auxiliary model is loaded
+    public func generateWithAuxiliaryModel(
+        messages: [Message],
+        temperature: Float = 0.6,
+        topP: Float = 0.95,
+        maxTokens: Int = 100
+    ) async throws -> AsyncStream<Generation> {
+        guard let (modelName, modelContainer) = auxiliaryModelContainer else {
+            throw NSError(domain: "MLXService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No auxiliary model loaded. Call preloadAuxiliaryModel first."])
+        }
+        
+        let chat = messages.map { message in
+            let role: Chat.Message.Role = switch message.role { case .assistant: .assistant; case .user: .user; case .system: .system }
+            let images: [UserInput.Image] = message.images.map { .url($0) }
+            let videos: [UserInput.Video] = message.videos.map { .url($0) }
+            return Chat.Message(role: role, content: message.content, images: images, videos: videos)
+        }
+        
+        let userInput = UserInput(
+            chat: chat,
+            processing: .init(resize: .init(width: 1024, height: 1024)),
+            tools: nil,
+            additionalContext: nil
+        )
+        
+        return try await modelContainer.perform { (context: ModelContext) in
+            let lmInput = try await context.processor.prepare(input: userInput)
+            
+            let parameters = GenerateParameters(
+                maxTokens: maxTokens,
+                temperature: temperature,
+                topP: topP,
+                repetitionPenalty: nil
+            )
+            
+            print("MLXService: Generating with auxiliary model '\(modelName)', maxTokens=\(maxTokens)")
+            return try MLXLMCommon.generate(input: lmInput, parameters: parameters, context: context)
+        }
     }
 }
