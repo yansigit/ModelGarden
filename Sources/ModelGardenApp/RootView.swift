@@ -3,6 +3,7 @@ import ModelGardenKit
 
 struct RootView: View {
     @Environment(ThemeSettings.self) private var theme
+    @Environment(ModelSettings.self) private var modelSettings
     @State private var tab: Tab = .chat
     let service: MLXService
 
@@ -10,7 +11,7 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            ChatScreen(service: service)
+            ChatScreen(service: service, modelSettings: modelSettings)
                 .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right.fill") }
                 .tag(Tab.chat)
             ModelManagerScreen()

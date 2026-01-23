@@ -7,7 +7,12 @@ import UniformTypeIdentifiers
 @MainActor
 public final class ChatViewModel {
     private let service: MLXService
-    public init(service: MLXService) { self.service = service }
+    private let modelSettings: ModelSettings?
+    
+    public init(service: MLXService, modelSettings: ModelSettings? = nil) {
+        self.service = service
+        self.modelSettings = modelSettings
+    }
 
     public var prompt: String = ""
     public var messages: [Message] = [.system("You are a helpful assistant!")]
@@ -26,9 +31,16 @@ public final class ChatViewModel {
         messages.append(.user(prompt, images: mediaSelection.images, videos: mediaSelection.videos))
         messages.append(.assistant(""))
         clear(.prompt)
+        
+        // Build additionalContext with custom EOS tokens if configured
+        var additionalContext: [String: any Sendable]? = nil
+        if let eosTokens = modelSettings?.customEOSTokens, !eosTokens.isEmpty {
+            additionalContext = [ExtraEOSTokensContextKey: eosTokens]
+            print("ChatViewModel: Using custom EOS tokens: \(eosTokens)")
+        }
 
         generateTask = Task {
-            for await generation in try await service.generate(messages: messages, model: selectedModel) {
+            for await generation in try await service.generate(messages: messages, model: selectedModel, additionalContext: additionalContext) {
                 switch generation {
                 case .chunk(let chunk):
                     if let last = messages.last { last.content += chunk }

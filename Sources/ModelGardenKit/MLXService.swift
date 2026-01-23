@@ -27,9 +27,11 @@ extension ModelConfiguration {
     
     /// Phi-4-mini-instruct: Microsoft's compact yet powerful model
     /// Source: https://huggingface.co/mlx-community/Phi-4-mini-instruct-4bit
+    /// Note: Phi-4 uses <|end|> as its EOS token (token ID 200020) for turn termination
     public static let phi4_mini_instruct_4bit = ModelConfiguration(
         id: "mlx-community/Phi-4-mini-instruct-4bit",
-        defaultPrompt: "You are a helpful AI assistant."
+        defaultPrompt: "You are a helpful AI assistant.",
+        extraEOSTokens: ["<|end|>"]
     )
     
     /// Qwen3-4B-Instruct-2507: Latest Qwen3 4B instruct model (July 2025 version)
@@ -210,6 +212,9 @@ public final class MLXService {
     ///   - model: The model to use for generation
     ///   - tools: Optional tool specifications for function calling (injected into chat template)
     ///   - maxTokens: Maximum tokens to generate (default 2048 for tool-calling models)
+    ///   - temperature: Temperature for sampling (0.0 = deterministic, higher = more random). Default: 0.6
+    ///   - topP: Top-P (nucleus sampling) probability threshold. Default: 0.95
+    ///   - repetitionPenalty: Penalty for repeated tokens (nil = no penalty). Default: nil
     ///   - additionalContext: Optional context passed to the chat template. Special keys:
     ///     - `"chatTemplate"`: A Jinja2 template string to override the model's default template
     ///     - `"enable_thinking"`: For Qwen3 models, set to false to disable thinking mode
@@ -219,6 +224,9 @@ public final class MLXService {
         model: LMModel,
         tools: [ToolSpec]? = nil,
         maxTokens: Int? = nil,
+        temperature: Float = 0.6,
+        topP: Float = 0.95,
+        repetitionPenalty: Float? = nil,
         additionalContext: [String: any Sendable]? = nil
     ) async throws -> AsyncStream<Generation> {
         let modelContainer = try await load(model: model)
@@ -266,10 +274,14 @@ public final class MLXService {
             let effectiveMaxTokens = maxTokens ?? (tools != nil ? 2048 : nil)
             print("MLXService: effectiveMaxTokens = \(effectiveMaxTokens ?? -1)")
             
-            // Use parameters optimized for tool calling (based on Jan model recommendations)
-            // temperature: 0.6 for more focused reasoning, topP: 0.95 for coherent output
-            let parameters = GenerateParameters(maxTokens: effectiveMaxTokens, temperature: 0.6, topP: 0.95)
-            print("MLXService: Starting generation with temperature=0.6, topP=0.95")
+            // Use provided parameters or defaults
+            let parameters = GenerateParameters(
+                maxTokens: effectiveMaxTokens,
+                temperature: temperature,
+                topP: topP,
+                repetitionPenalty: repetitionPenalty
+            )
+            print("MLXService: Starting generation with temperature=\(temperature), topP=\(topP), repetitionPenalty=\(repetitionPenalty?.description ?? "nil")")
             return try MLXLMCommon.generate(input: lmInput, parameters: parameters, context: effectiveContext)
         }
     }

@@ -4,7 +4,9 @@ import ModelGardenKit
 
 struct ChatScreen: View {
     @State private var vm: ChatViewModel
-    init(service: MLXService) { _vm = State(initialValue: ChatViewModel(service: service)) }
+    init(service: MLXService, modelSettings: ModelSettings) {
+        _vm = State(initialValue: ChatViewModel(service: service, modelSettings: modelSettings))
+    }
 
     var body: some View {
         NavigationStack {

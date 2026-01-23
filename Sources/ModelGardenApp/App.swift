@@ -4,12 +4,14 @@ import ModelGardenKit
 @main
 struct ModelGardenMainApp: App {
     @State private var theme = ThemeSettings()
+    @State private var modelSettings = ModelSettings()
     private let service = MLXService()
 
     var body: some Scene {
         WindowGroup {
             RootView(service: service)
                 .environment(theme)
+                .environment(modelSettings)
         }
         #if os(macOS)
         .windowStyle(.hiddenTitleBar)
